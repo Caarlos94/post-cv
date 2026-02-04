@@ -1,0 +1,286 @@
+FEATURES PARA POST CV
+═══════════════════════════════════════════════════════════════
+
+1. AUTENTICACIÓN
+─────────────────────────────────────────────────────────────────
+
+Sistema que permite a los usuarios crear una cuenta e identificarse cada vez que usan POST CV.
+
+  [Register]
+  El usuario llena: nombre, email, contraseña.
+  El backend hashea la contraseña (la convierte en un texto
+  ilegible e irreversible) y crea el usuario en la BD.
+  Le devuelve un JWT token.
+
+  [Login]
+  El usuario pone email + contraseña.
+  El backend busca el email, compara la contraseña contra
+  el hash guardado. Si coincide, le devuelve un JWT token.
+
+  [Acceder a cualquier otra cosa]
+  El frontend envía el JWT token en cada request.
+  El backend lo valida y sabe quién es el usuario sin
+  pedirle email/contraseña de nuevo.
+
+
+2. SUBIR CV (PDF/DOCX)
+─────────────────────────────────────────────────────────────────
+
+El usuario sube un archivo de su CV y el sistema extrae todo
+el texto para poder analizarlo después.
+
+La IA no puede leer un archivo PDF directamente. Se requiere
+convertirlo a texto plano para poder enviárselo a OpenAI.
+
+  - Si es PDF  --> la librería pdf-parse extrae todo el texto
+  - Si es DOCX --> la librería mammoth extrae todo el texto
+
+Guarda en la BD:
+  - title = "CV Frontend Developer" (nombre que el usuario le da)
+  - original_content = todo el texto extraído
+  - file_type = "pdf"
+  - status = "PENDING" (listo para ser analizado)
+
+Responde: "Tu CV se subió correctamente, ID: abc-123"
+
+
+3. ATS SCORE (OpenAI)
+─────────────────────────────────────────────────────────────────
+
+La IA analiza el CV del usuario y le da una calificación
+general de qué tan bueno es, con problemas específicos que
+necesita corregir.
+
+  ★ Es el gancho principal del producto. Es el momento
+    "WOOOOOOOOW" donde el usuario ve exactamente qué está
+    mal en su CV. Genera la necesidad de arreglarlo
+    (que es premium).
+
+Flujo:
+  1. El usuario hace clic en "Analizar mi CV"
+  2. Backend lee el original_content de la BD
+  3. Envía a OpenAI un prompt junto con el texto del CV
+  4. OpenAI responde con el análisis completo
+
+Backend parsea la respuesta y guarda en BD:
+  - overall_score = 62
+  - category_scores = { atsCompatibility: 78, contentQuality: 45, ... }
+  - problems = [{ "6 bullets sin métricas" }, { "Summary genérico" }, ...]
+  - status = "COMPLETED"
+
+Responde al frontend con el score + problemas.
+
+Lo que ve cada usuario:
+  [FREE]    Score completo + primeros 3 problemas
+  [PREMIUM] Score completo + TODOS los problemas + sugerencias
+
+
+4. JOB DESCRIPTION MATCHING (OpenAI)
+─────────────────────────────────────────────────────────────────
+
+El usuario pega la descripción de un puesto de trabajo y la IA
+compara ese puesto contra su CV para decirle qué tan compatible es.
+
+  ★ Un CV puede ser excelente pero no coincidir con un puesto
+    específico. Esta feature le dice al usuario exactamente
+    qué le falta para ese puesto.
+
+Flujo:
+  1. El usuario pega el job description de una vacante
+  2. Backend lee el original_content del CV y le agrega el job description
+  3. Envía ambos textos a OpenAI
+  4. OpenAI responde con la comparación
+
+Backend guarda en BD:
+  - last_match_rate = 43 (Score de la comparación)
+  - last_job_description = "Senior Frontend Developer at Google..."
+
+Lo que ve el usuario:
+  Match Rate: 43%
+  [OK] Keywords que ya tienes: JavaScript, React, REST API
+  [X]  Keywords que te faltan: TypeScript, CI/CD, Leadership
+  [PREMIUM] Te decimos exactamente DÓNDE agregarlas en tu CV
+
+Límite free: 3 comparaciones por mes. Después --> upgrade a premium.
+
+
+5. STRIPE PARA PAGOS
+─────────────────────────────────────────────────────────────────
+
+El sistema que procesa los pagos cuando un usuario decide hacer
+upgrade a Premium.
+
+  ★ Sin esto no hay plata $$$. Es lo que convierte usuarios
+    gratuitos en clientes que pagan.
+
+Flujo:
+  1. El usuario hace clic en "Upgrade to Premium - $9.99/month"
+  2. Backend crea una "Checkout Session" en Stripe
+  3. Backend devuelve una URL de Stripe al frontend
+  4. Frontend redirige al usuario a esa URL
+  5. Stripe procesa el pago y envía un WEBHOOK a tu backend
+     (Un webhook es cuando Stripe le envía una notificación
+     HTTP a nuestro backend automáticamente)
+  6. Backend recibe el webhook y actualiza la BD:
+       - plan = PRO_MONTHLY
+       - stripeCustomerId = "cus_xxx"
+       - stripeSubscriptionId = "sub_xxx"
+       - planExpiresAt = fecha de renovación
+  7. El usuario vuelve a tu app y ya es Premium
+
+
+6. AI BULLET REWRITER (OpenAI) [PREMIUM]
+─────────────────────────────────────────────────────────────────
+
+  ★ Bullet points son los puntos/viñetas con los que describes
+    tu experiencia laboral en un CV.
+
+La IA toma cada bullet point del CV y lo reescribe con métricas,
+action verbs y lenguaje de impacto.
+
+  ★ Es el feature de mayor valor percibido. El usuario ve su
+    bullet débil al lado de la versión mejorada y piensa
+    "necesito esto". Es la razón principal por la que pagan.
+
+Flujo:
+  1. El usuario (premium) hace clic en "Rewrite my CV"
+  2. Backend lee el original_content
+  3. Envía a OpenAI
+  4. OpenAI devuelve todos los bullets reescritos
+  5. Backend guarda en BD: optimized_content = CV completo reescrito
+  6. Responde al frontend con antes/después
+
+Ejemplos:
+
+  ANTES:  Managed the company database
+  DESPUES: Optimized PostgreSQL database queries, reducing
+           response time by 40% across 2M+ daily transactions
+
+  ANTES:  Worked on the marketing team
+  DESPUES: Led 3 digital marketing campaigns generating $250K
+           in pipeline revenue within 6 months
+
+  ANTES:  Responsible for customer support
+  DESPUES: Resolved 95% of customer tickets within 24 hours,
+           improving satisfaction score from 3.2 to 4.7
+
+Lo que ve cada usuario:
+  [FREE]    Ve solo 1 bullet reescrito como preview
+  [PREMIUM] Todos los bullets reescritos + guardados
+
+
+7. TEMPLATE RENDERING + PDF EXPORT [PREMIUM]
+─────────────────────────────────────────────────────────────────
+
+El usuario selecciona un diseño de CV profesional y el sistema
+genera un archivo PDF descargable con su contenido optimizado.
+
+  ★ De nada sirve tener contenido optimizado si no puedes
+    descargarlo en un formato profesional listo para enviar
+    a reclutadores.
+
+Flujo:
+  1. El usuario ve su CV optimizado en el dashboard
+  2. Hace clic en "Download PDF"
+  3. Ve un selector de templates con previews
+     (Un template es un archivo HTML + CSS que define cómo
+     se ve el CV, como una plantilla de Word pero hecha
+     con código web)
+  4. Selecciona "Professional" y hace clic en "Export"
+  5. El frontend llama al backend
+  6. El backend:
+       a) Lee el optimized_content de la BD
+       b) Estructura el contenido en secciones
+          (nombre, contacto, experiencia, skills, educación)
+       c) Inyecta cada sección en el template HTML
+       d) Puppeteer abre ese HTML en un Chrome invisible (headless)
+       e) Puppeteer ejecuta: "imprimir esta página como PDF"
+       f) Devuelve el archivo PDF al frontend
+  7. El navegador descarga: "Carlos_Islas_CV.pdf"
+
+  ★ Puppeteer es una librería de Node.js que controla un
+    Chrome sin interfaz gráfica (headless). Básicamente es
+    un Chrome invisible que puedes controlar con código.
+    Escribes HTML/CSS normal y Puppeteer lo "imprime" como PDF.
+
+
+¿Qué diferencia hay entre los templates?
+
+Cada template tiene el mismo contenido pero diferente diseño:
+
+  [Clean]
+  Minimalista. Mucho espacio blanco, una sola columna,
+  sin colores. Solo tipografía limpia.
+  Ideal para: Cualquier industria. El "safe choice".
+
+  [Professional]
+  Formal. Líneas divisoras, tipografía serif (Georgia/Times),
+  estructura clásica.
+  Ideal para: Banca, legal, consultoría, gobierno.
+
+  [Modern]
+  Toque de color en headers y sección de skills.
+  Tipografía sans-serif. Diseño actual.
+  Ideal para: Startups, tech, marketing, diseño.
+
+  [Technical]
+  Sección de skills prominente con tags/badges.
+  Skills agrupados por categoría.
+  Ideal para: Developers, ingenieros, data science.
+
+Lo importante: todos son ATS-friendly. Eso significa:
+  - Una sola columna (no 2 columnas que confundan al ATS)
+  - Sin imágenes ni iconos
+  - Sin tablas para layout
+  - Texto seleccionable (no imágenes de texto)
+  - Fuentes estándar
+
+
+8. CRUD COMPLETO DE CVs
+─────────────────────────────────────────────────────────────────
+
+Las operaciones básicas para que el usuario gestione sus CVs:
+verlos, listarlos, eliminarlos.
+
+  ★ Un usuario puede querer tener múltiples versiones de su CV
+    (una para tech, otra para base de datos, otra en español).
+    Necesita poder gestionarlas.
+
+  [Listar]
+  Muestra todos los CVs del usuario con título, score y fecha
+  FREE: Máximo 1 CV | PREMIUM: Ilimitados
+
+  [Ver detalle]
+  Muestra un CV específico con todo su análisis, score,
+  match rate y contenido
+  FREE: OK | PREMIUM: OK
+
+  [Eliminar]
+  Borra un CV y todos sus datos de análisis
+  FREE: OK | PREMIUM: OK
+
+  [Renombrar]
+  Cambia el título de un CV
+  FREE: OK | PREMIUM: OK
+
+
+Lo que ve el usuario en el dashboard:
+
+  +---------------------------------------------+
+  |  Mis CVs                                    |
+  |                                             |
+  |  CV Frontend Developer    Score: 62/100    |
+  |  Subido: 2 Feb 2026       Match: 43%       |
+  |  [Ver] [Analizar] [Eliminar]               |
+  |                                             |
+  |  CV Product Manager       Score: 78/100    |
+  |  Subido: 5 Feb 2026       Match: --        |  <-- Solo PREMIUM
+  |  [Ver] [Analizar] [Eliminar]               |
+  |                                             |
+  |  [+ Subir nuevo CV]                         |
+  |                                             |
+  |  Free: 1 CV máximo. Upgrade for more.      |  <-- Solo FREE
+  +---------------------------------------------+
+
+
+═══════════════════════════════════════════════════════════════

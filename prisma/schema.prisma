@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────
+
+enum Plan {
+  FREE
+  PRO_MONTHLY
+  PRO_ANNUAL
+}
+
+enum CvStatus {
+  PENDING
+  ANALYZING
+  COMPLETED
+  FAILED
+}
+
+// ─── User ───────────────────────────────────────────
+
+model User {
+  id                   String    @id @default(uuid())
+  name                 String
+  email                String    @unique
+  password             String
+  plan                 Plan      @default(FREE)
+  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  planExpiresAt        DateTime? @map("plan_expires_at")
+  matchesUsedThisMonth Int       @default(0) @map("matches_used_this_month")
+  matchesResetAt       DateTime  @default(now()) @map("matches_reset_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  cvs Cv[]
+
+  @@map("users")
+}
+
+// ─── CV ─────────────────────────────────────────────
+
+model Cv {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  title            String
+  originalContent  String   @map("original_content") @db.Text
+  optimizedContent String?  @map("optimized_content") @db.Text
+  fileType         String?  @map("file_type")
+  status           CvStatus @default(PENDING)
+
+  // Analysis results
+  overallScore   Int?  @map("overall_score")
+  categoryScores Json? @map("category_scores")
+  problems       Json?
+
+  // Last job description match
+  lastMatchRate      Int?    @map("last_match_rate")
+  lastJobDescription String? @map("last_job_description") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("cvs")
+}
